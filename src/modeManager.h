@@ -1,11 +1,11 @@
 #pragma once
 #include <Arduino.h>
 
-// โหมดทั้งหมดของอุปกรณ์ กด BUTTON_PIN เพื่อวนลำดับ 1 -> 2 -> 3 -> 1
+// โหมดทั้งหมดของอุปกรณ์
 enum AppMode : uint8_t {
   MODE_EMOTE = 1,   // default: หน้าจอ emote ตามอุณหภูมิ
   MODE_ALARM = 2,   // พิมพ์ "Alarm mode"
-  MODE_MUSIC = 3,   // พิมพ์ "Music"
+  MODE_MUSIC = 3,   // เมนูเลือกเพลง + เล่นเพลง
 };
 
 class ModeManager {
@@ -16,12 +16,14 @@ public:
   void begin() {
     pinMode(_pin, INPUT_PULLUP);
     _lastRaw = digitalRead(_pin);
+    _stableState = _lastRaw;
   }
 
-  // เรียกทุกรอบของ loop() ก่อนใช้งาน mode()
-  // คืนค่า true ถ้าโหมดเพิ่งเปลี่ยนในรอบนี้ (ให้แต่ละโหมดใช้รีเซ็ตสถานะของตัวเอง)
-  bool update() {
-    bool raw = digitalRead(_pin);   // active-low: LOW = กด
+  // เรียกทุกรอบของ loop() - คืน true "ครั้งเดียว" ต่อการกดปุ่มหนึ่งครั้ง (debounced edge)
+  // ฟังก์ชันนี้แค่รายงานว่ามีการกด ไม่ได้ตัดสินใจเปลี่ยนโหมดเอง
+  // (เดิม MusicMode ต้องดักปุ่มไปทำเมนูของตัวเองก่อน จึงแยกออกจาก advanceMode())
+  bool buttonPressed() {
+    bool raw = digitalRead(_pin);
     unsigned long now = millis();
 
     if (raw != _lastRaw) {
@@ -29,28 +31,26 @@ public:
       _lastChangeTime = now;
     }
 
-    bool changed = false;
+    bool pressed = false;
     if ((now - _lastChangeTime) > DEBOUNCE_MS && raw != _stableState) {
       _stableState = raw;
-      if (_stableState == LOW) {          // ขอบขาลง = กดปุ่มจริง
-        _mode = nextMode(_mode);
-        changed = true;
-      }
+      if (_stableState == LOW) pressed = true;   // ขอบขาลง = กดจริง
     }
-    return changed;
+    return pressed;
+  }
+
+  // สลับไปโหมดถัดไป (1 -> 2 -> 3 -> 1) - เรียกเมื่อ "ยืนยัน" จะเปลี่ยนโหมดแล้วเท่านั้น
+  void advanceMode() {
+    switch (_mode) {
+      case MODE_EMOTE: _mode = MODE_ALARM; break;
+      case MODE_ALARM: _mode = MODE_MUSIC; break;
+      default:         _mode = MODE_EMOTE; break;
+    }
   }
 
   AppMode mode() const { return _mode; }
 
 private:
-  static AppMode nextMode(AppMode m) {
-    switch (m) {
-      case MODE_EMOTE: return MODE_ALARM;
-      case MODE_ALARM: return MODE_MUSIC;
-      default:         return MODE_EMOTE;
-    }
-  }
-
   static constexpr unsigned long DEBOUNCE_MS = 30;
 
   uint8_t _pin;

@@ -28,6 +28,24 @@ ModeManager modeManager(BUTTON_PIN);
 float currentTemp = 25.0f;
 unsigned long lastDHTReadTime = 0;
 
+// เรียก onEnter() ของโหมดที่ "กำลังจะเข้า"
+void enterMode(AppMode m) {
+  switch (m) {
+    case MODE_EMOTE: EmoteMode::onEnter(); break;
+    case MODE_ALARM: AlarmMode::onEnter(); break;
+    case MODE_MUSIC: MusicMode::onEnter(); break;
+  }
+}
+
+// เรียก onExit() ของโหมดที่ "กำลังจะออก"
+void exitMode(AppMode m) {
+  switch (m) {
+    case MODE_EMOTE: EmoteMode::onExit(); break;
+    case MODE_ALARM: AlarmMode::onExit(); break;
+    case MODE_MUSIC: MusicMode::onExit(); break;
+  }
+}
+
 void setup() {
   Serial.begin(115200);
   Wire.begin(21, 22);
@@ -44,7 +62,7 @@ void setup() {
   float t = dht.readTemperature();
   if (!isnan(t)) currentTemp = t;
 
-  EmoteMode::onEnter();   // เริ่มที่โหมด default
+  enterMode(modeManager.mode());   // เริ่มที่โหมด default (Emote)
 }
 
 void loop() {
@@ -57,35 +75,39 @@ void loop() {
     if (!isnan(t)) currentTemp = t;
   }
 
-  // เช็คปุ่ม -> ถ้ามีการกด modeManager จะเปลี่ยนโหมดให้เอง
-  // เก็บโหมดเดิมไว้ก่อน update() เพื่อเรียก onExit() ของโหมดที่กำลังจะออก
-  // (สำคัญกับ MusicMode: ต้อง noTone() ทันที ไม่งั้นเสียงจะค้างเวลาสลับโหมด)
-  AppMode prevMode = modeManager.mode();
-  bool modeChanged = modeManager.update();
+  bool pressed = modeManager.buttonPressed();
+  AppMode mode = modeManager.mode();
 
-  if (modeChanged) {
-    switch (prevMode) {
-      case MODE_EMOTE: EmoteMode::onExit(); break;
-      case MODE_ALARM: AlarmMode::onExit(); break;
-      case MODE_MUSIC: MusicMode::onExit(); break;
+  if (pressed) {
+    if (mode == MODE_MUSIC) {
+      // อยู่ในโหมด Music: ปุ่มถูกเมนูของ Music ดักไปใช้เอง
+      // ขอสลับโหมดจริงก็ต่อเมื่อเคอร์เซอร์เดินไปถึงช่อง "Mode" เท่านั้น
+      bool wantsModeSwitch = MusicMode::onButtonPress();
+      if (wantsModeSwitch) {
+        exitMode(mode);
+        modeManager.advanceMode();
+        enterMode(modeManager.mode());
+      }
+    } else {
+      // โหมดอื่น: กดปุ่มแล้วสลับโหมดทันทีตามปกติ
+      exitMode(mode);
+      modeManager.advanceMode();
+      enterMode(modeManager.mode());
     }
   }
 
   switch (modeManager.mode()) {
     case MODE_EMOTE:
-      if (modeChanged) EmoteMode::onEnter();
       EmoteMode::update(currentTemp);
       EmoteMode::draw(display, currentTemp, OLED_X_OFFSET);
       break;
 
     case MODE_ALARM:
-      if (modeChanged) AlarmMode::onEnter();
       AlarmMode::update(currentTemp);
       AlarmMode::draw(display, OLED_X_OFFSET);
       break;
 
     case MODE_MUSIC:
-      if (modeChanged) MusicMode::onEnter();
       MusicMode::update(currentTemp);
       MusicMode::draw(display, OLED_X_OFFSET);
       break;

@@ -13,7 +13,7 @@ inline unsigned long lastFrameTime = 0;
 inline EmoteType pickEmote(float t, EmoteType cur) {
   const float H = 0.5f;
   switch (cur) {
-    case EMOTE_COLD: return (t >= 27.0f + H) ? EMOTE_NORMAL : EMOTE_COLD;
+    case EMOTE_COLD: return (t > 27.0f + H) ? EMOTE_NORMAL : EMOTE_COLD;
     case EMOTE_HOT:  return (t < 28.5f - H) ? EMOTE_NORMAL : EMOTE_HOT;
     default:
       if (t <= 27.0f - H) return EMOTE_COLD;
@@ -39,6 +39,8 @@ inline void onEnter() {
   currentFrame = 0;
   lastFrameTime = millis();
 }
+
+// เรียกตอนสลับออกจากโหมดนี้ - โหมดนี้ไม่มีอะไรต้องเคลียร์
 inline void onExit() {}
 
 // currentTemp: อุณหภูมิล่าสุดจาก DHT11 (อ่านใน main.cpp แล้วส่งเข้ามา)
