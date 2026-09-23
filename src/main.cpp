@@ -4,8 +4,8 @@
 #include <Adafruit_SSD1306.h>
 #include <DHT.h>
 
-#include "modeManager.h"
-#include "Emotemode.h"
+#include "ModeManager.h"
+#include "EmoteMode.h"
 #include "AlarmMode.h"
 #include "MusicMode.h"
 
@@ -58,7 +58,18 @@ void loop() {
   }
 
   // เช็คปุ่ม -> ถ้ามีการกด modeManager จะเปลี่ยนโหมดให้เอง
+  // เก็บโหมดเดิมไว้ก่อน update() เพื่อเรียก onExit() ของโหมดที่กำลังจะออก
+  // (สำคัญกับ MusicMode: ต้อง noTone() ทันที ไม่งั้นเสียงจะค้างเวลาสลับโหมด)
+  AppMode prevMode = modeManager.mode();
   bool modeChanged = modeManager.update();
+
+  if (modeChanged) {
+    switch (prevMode) {
+      case MODE_EMOTE: EmoteMode::onExit(); break;
+      case MODE_ALARM: AlarmMode::onExit(); break;
+      case MODE_MUSIC: MusicMode::onExit(); break;
+    }
+  }
 
   switch (modeManager.mode()) {
     case MODE_EMOTE:

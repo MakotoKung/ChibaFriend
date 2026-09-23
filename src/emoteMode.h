@@ -39,6 +39,7 @@ inline void onEnter() {
   currentFrame = 0;
   lastFrameTime = millis();
 }
+inline void onExit() {}
 
 // currentTemp: อุณหภูมิล่าสุดจาก DHT11 (อ่านใน main.cpp แล้วส่งเข้ามา)
 inline void update(float currentTemp) {

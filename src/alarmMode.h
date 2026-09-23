@@ -8,6 +8,7 @@ namespace AlarmMode {
 inline void onEnter() {
   Serial.println(F("Alarm mode"));
 }
+inline void onExit() {}
 
 inline void update(float /*currentTemp*/) {
   // TODO: ใส่ logic ของโหมด Alarm
