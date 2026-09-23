@@ -1,99 +1,82 @@
-﻿#include <Wire.h>
+﻿#include <Arduino.h>
+#include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include <DHT.h>
-#include "Emote.h"
 
-#define SCREEN_I2C_ADDR 0x3C   // แก้ตามผล scanner
-#define SCREEN_WIDTH 64
-#define SCREEN_HEIGHT 32
-#define OLED_RST_PIN -1
-#define EMOTE_SCALE 4          // 8x8 -> 32x32
+#include "modeManager.h"
+#include "Emotemode.h"
+#include "AlarmMode.h"
+#include "MusicMode.h"
 
-Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RST_PIN);
+// ---------------- OLED SSD1306 ขนาด 64x32 ----------------
+#define SCREEN_I2C_ADDR 0x3C
+#define OLED_RST_PIN    -1
+#define OLED_X_OFFSET   32   // จอ 64x32 เห็นแค่คอลัมน์ 32-95 ของ RAM 128 คอลัมน์
 
-#define DHTPIN 4
+Adafruit_SSD1306 display(128, 32, &Wire, OLED_RST_PIN);
+
+// ---------------- DHT11 ----------------
+#define DHTPIN  4
 #define DHTTYPE DHT11
 DHT dht(DHTPIN, DHTTYPE);
 
+// ---------------- ปุ่ม (active-low) ----------------
+#define BUTTON_PIN 15
+ModeManager modeManager(BUTTON_PIN);
+
 float currentTemp = 25.0f;
-EmoteType currentType = EMOTE_NORMAL;
-uint8_t currentFrame = 0;
-unsigned long lastFrameTime = 0;
 unsigned long lastDHTReadTime = 0;
-bool needRedraw = true;
-
-// hysteresis 0.5 องศา กันภาพสลับไปมาตรงเส้นแบ่ง
-EmoteType pickEmote(float t, EmoteType cur) {
-  const float H = 0.5f;
-  switch (cur) {
-    case EMOTE_COLD:   return (t > 24.0f + H) ? EMOTE_NORMAL : EMOTE_COLD;
-    case EMOTE_HOT:    return (t < 28.0f - H) ? EMOTE_NORMAL : EMOTE_HOT;
-    default:
-      if (t <= 27.0f - H) return EMOTE_COLD;
-      if (t > 28.5f + H) return EMOTE_HOT;
-      return EMOTE_NORMAL;
-  }
-}
-
-void drawBitmapScaled(int x, int y, const uint8_t *bmp, int scale) {
-  for (int r = 0; r < BMP_SIZE; r++) {
-    uint8_t row = pgm_read_byte(bmp + r);
-    for (int c = 0; c < BMP_SIZE; c++) {
-      if (row & (0x80 >> c)) {
-        display.fillRect(x + c * scale, y + r * scale, scale, scale, SSD1306_WHITE);
-      }
-    }
-  }
-}
 
 void setup() {
   Serial.begin(115200);
-  Wire.begin(21,22);
+  Wire.begin(21, 22);
   dht.begin();
-  display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
+  modeManager.begin();
+
+  if (!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_I2C_ADDR)) {
+    Serial.println(F("SSD1306 allocation failed"));
+    for (;;);
+  }
   display.clearDisplay();
   display.display();
+
+  float t = dht.readTemperature();
+  if (!isnan(t)) currentTemp = t;
+
+  EmoteMode::onEnter();   // เริ่มที่โหมด default
 }
 
 void loop() {
   unsigned long now = millis();
-  display.clearDisplay();
-  
+
+  // อ่านอุณหภูมิทุก 2 วินาที
   if (now - lastDHTReadTime >= 2000UL) {
     lastDHTReadTime = now;
     float t = dht.readTemperature();
     if (!isnan(t)) currentTemp = t;
-    Serial.printf("Temperature: %.1f C\n", currentTemp);
-    needRedraw = true;
-  }
-  //Show Temperature
-  display.setTextSize(1);
-  display.setTextColor(SSD1306_WHITE);
-  display.setCursor(5, 30);
-  display.print(currentTemp, 1);
-  display.print(F(" C"));
-
-  EmoteType newType = pickEmote(currentTemp, currentType);
-  if (newType != currentType) {
-    currentType = newType;
-    currentFrame = 0;          // รีเซ็ตเฟรมเมื่อเปลี่ยนอารมณ์
-    lastFrameTime = now;
-    needRedraw = true;
   }
 
-  const Emote &e = EMOTES[currentType];
-  if (now - lastFrameTime >= e.frames[currentFrame].ms) {
-    lastFrameTime = now;
-    currentFrame = (currentFrame + 1) % e.count;
-    needRedraw = true;
-  }
+  // เช็คปุ่ม -> ถ้ามีการกด modeManager จะเปลี่ยนโหมดให้เอง
+  bool modeChanged = modeManager.update();
 
-  if (needRedraw) {
-    needRedraw = false;
-    display.clearDisplay();
-    drawBitmapScaled(16, 0, e.frames[currentFrame].bmp, EMOTE_SCALE);
-    
-    display.display();
+  switch (modeManager.mode()) {
+    case MODE_EMOTE:
+      if (modeChanged) EmoteMode::onEnter();
+      EmoteMode::update(currentTemp);
+      EmoteMode::draw(display, currentTemp, OLED_X_OFFSET);
+      break;
+
+    case MODE_ALARM:
+      if (modeChanged) AlarmMode::onEnter();
+      AlarmMode::update(currentTemp);
+      AlarmMode::draw(display, OLED_X_OFFSET);
+      break;
+
+    case MODE_MUSIC:
+      if (modeChanged) MusicMode::onEnter();
+      MusicMode::update(currentTemp);
+      MusicMode::draw(display, OLED_X_OFFSET);
+      break;
   }
 }
