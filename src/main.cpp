@@ -21,7 +21,9 @@ Adafruit_SSD1306 display(128, 32, &Wire, OLED_RST_PIN);
 #define DHTTYPE DHT11
 DHT dht(DHTPIN, DHTTYPE);
 
-// ---------------- ปุ่ม (active-low) ----------------
+// ---------------- ปุ่มหลัก (active-low) ----------------
+// หมายเหตุ: GPIO15 เป็น strapping pin ของ ESP32 ต้องเป็น HIGH ตอนบูต
+// เพราะปุ่มต่อแบบ active-low พร้อม INPUT_PULLUP (นิ่ง = HIGH) จึงไม่กระทบการบูตตามปกติ
 #define BUTTON_PIN 15
 ModeManager modeManager(BUTTON_PIN);
 
@@ -75,27 +77,34 @@ void loop() {
     if (!isnan(t)) currentTemp = t;
   }
 
+  // ---------------- ปุ่มหลัก (PIN15) ----------------
+  // แต่ละโหมดตัดสินใจเองว่า "กดแล้วจะสลับ AppMode จริงไหม"
+  // Emote: สลับทันทีทุกครั้งที่กด (ไม่มีหน้าจอย่อยของตัวเอง)
+  // Alarm/Music: มีหน้าจอ/เมนูของตัวเอง กดแล้วเลื่อนภายในโหมดก่อน สลับโหมดจริงเมื่อเลื่อนเกิน index สุดท้าย
   bool pressed = modeManager.buttonPressed();
   AppMode mode = modeManager.mode();
 
   if (pressed) {
-    if (mode == MODE_MUSIC) {
-      // อยู่ในโหมด Music: ปุ่มถูกเมนูของ Music ดักไปใช้เอง
-      // ขอสลับโหมดจริงก็ต่อเมื่อเคอร์เซอร์เดินไปถึงช่อง "Mode" เท่านั้น
-      bool wantsModeSwitch = MusicMode::onButtonPress();
-      if (wantsModeSwitch) {
-        exitMode(mode);
-        modeManager.advanceMode();
-        enterMode(modeManager.mode());
-      }
-    } else {
-      // โหมดอื่น: กดปุ่มแล้วสลับโหมดทันทีตามปกติ
+    bool wantsModeSwitch;
+    switch (mode) {
+      case MODE_ALARM: wantsModeSwitch = AlarmMode::onMainButtonPress(); break;
+      case MODE_MUSIC: wantsModeSwitch = MusicMode::onButtonPress();     break;
+      default:         wantsModeSwitch = true;                          break;
+    }
+    if (wantsModeSwitch) {
       exitMode(mode);
       modeManager.advanceMode();
       enterMode(modeManager.mode());
     }
   }
 
+  // ---------------- Alarm ทำงานเบื้องหลังตลอดเวลา ไม่ผูกกับโหมดปัจจุบัน ----------------
+  // - นับเวลาถอยหลังและเริ่มกริ่งเมื่อครบ แม้ไม่ได้อยู่หน้าจอ Alarm
+  // - ปุ่ม OK ปิดเสียงกริ่งได้จากทุกโหมด (ตั้ง/ยกเลิก timer ใหม่ได้เฉพาะตอนอยู่หน้าจอ Alarm)
+  AlarmMode::update(currentTemp);
+  AlarmMode::checkOkButton(modeManager.mode() == MODE_ALARM);
+
+  // ---------------- วาดเฉพาะหน้าจอของโหมดปัจจุบัน ----------------
   switch (modeManager.mode()) {
     case MODE_EMOTE:
       EmoteMode::update(currentTemp);
@@ -103,8 +112,7 @@ void loop() {
       break;
 
     case MODE_ALARM:
-      AlarmMode::update(currentTemp);
-      AlarmMode::draw(display, OLED_X_OFFSET);
+      AlarmMode::draw(display, OLED_X_OFFSET);   // update() ถูกเรียกไปแล้วด้านบน
       break;
 
     case MODE_MUSIC:
